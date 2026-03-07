@@ -17,20 +17,34 @@ func IsGitRepo(path string) bool {
 	return info.IsDir() || info.Mode().IsRegular()
 }
 
+// RepoRoot returns the absolute repository root for the given path.
+func RepoRoot(path string) (string, error) {
+	out, err := runGit(path, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(strings.TrimSpace(out)), nil
+}
+
 // DefaultBranch returns the default branch for the repo at repoPath.
 // Tries upstream/HEAD, then origin/HEAD, then checks if "main" or "master" exists locally.
 func DefaultBranch(repoPath string) (string, error) {
-	for _, ref := range []string{"refs/remotes/upstream/HEAD", "refs/remotes/origin/HEAD"} {
+	for _, remote := range []string{"upstream", "origin"} {
+		ref := "refs/remotes/" + remote + "/HEAD"
 		out, err := runGit(repoPath, "symbolic-ref", ref)
 		if err == nil {
-			parts := strings.Split(strings.TrimSpace(out), "/")
-			if len(parts) > 0 {
-				return parts[len(parts)-1], nil
+			prefix := "refs/remotes/" + remote + "/"
+			resolved := strings.TrimSpace(out)
+			if strings.HasPrefix(resolved, prefix) {
+				branch := strings.TrimPrefix(resolved, prefix)
+				if branch != "" {
+					return branch, nil
+				}
 			}
 		}
 	}
 	for _, branch := range []string{"main", "master"} {
-		if _, err := runGit(repoPath, "rev-parse", "--verify", branch); err == nil {
+		if _, err := runGit(repoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
 			return branch, nil
 		}
 	}

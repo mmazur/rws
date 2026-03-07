@@ -56,11 +56,12 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	singleRepo := gitutil.IsGitRepo(cwd)
+	repoRoot, repoErr := gitutil.RepoRoot(cwd)
+	singleRepo := repoErr == nil
 
 	var repos []string
 	if singleRepo {
-		repos = []string{filepath.Base(cwd)}
+		repos = []string{filepath.Base(repoRoot)}
 	} else {
 		repos, err = workspace.DiscoverRepos(cwd)
 		if err != nil {
@@ -73,7 +74,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	// Validate all repos before creating anything
 	if singleRepo {
-		// Already validated by IsGitRepo check above
+		// Already validated by RepoRoot lookup above
 	} else {
 		for _, repo := range repos {
 			repoPath := filepath.Join(cwd, repo)
@@ -93,10 +94,10 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		branchName = wsName
 	}
 
-	// In single-repo mode, baseDir is the parent of cwd (the repo is cwd itself)
+	// In single-repo mode, baseDir is the parent of repo root.
 	baseDir := cwd
 	if singleRepo {
-		baseDir = filepath.Dir(cwd)
+		baseDir = filepath.Dir(repoRoot)
 	}
 
 	cfg := workspace.Config{

@@ -40,9 +40,13 @@ func DiscoverRepos(dir string) ([]string, error) {
 
 // DiscoverSymlinks finds symlinks in dir that point to one of the repo subdirectories.
 func DiscoverSymlinks(dir string, repos []string) (map[string]string, error) {
-	repoSet := make(map[string]bool, len(repos))
+	repoTargets := make(map[string]string, len(repos))
 	for _, r := range repos {
-		repoSet[r] = true
+		repoPath := filepath.Clean(filepath.Join(dir, r))
+		repoTargets[repoPath] = r
+		if resolved, err := filepath.EvalSymlinks(repoPath); err == nil {
+			repoTargets[filepath.Clean(resolved)] = r
+		}
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -60,10 +64,19 @@ func DiscoverSymlinks(dir string, repos []string) (map[string]string, error) {
 		if err != nil {
 			continue
 		}
-		// Normalize: target may be relative or absolute
-		targetBase := filepath.Base(target)
-		if repoSet[targetBase] {
-			symlinks[e.Name()] = targetBase
+
+		resolvedTarget := target
+		if !filepath.IsAbs(resolvedTarget) {
+			resolvedTarget = filepath.Join(filepath.Dir(linkPath), resolvedTarget)
+		}
+		resolvedTarget = filepath.Clean(resolvedTarget)
+
+		if resolved, err := filepath.EvalSymlinks(resolvedTarget); err == nil {
+			resolvedTarget = filepath.Clean(resolved)
+		}
+
+		if repoName, ok := repoTargets[resolvedTarget]; ok {
+			symlinks[e.Name()] = repoName
 		}
 	}
 	return symlinks, nil
@@ -98,16 +111,37 @@ func Create(cfg Config) error {
 		created = append(created, repo)
 	}
 
-	fmt.Fprintf(os.Stdout, "Created workspace '%s' (branch %s)\n", cfg.Name, cfg.BranchName)
-	fmt.Fprintf(os.Stdout, "Repos: %s\n", strings.Join(created, ", "))
-
-	// Multi-repo extras
 	var extras []string
+	var warnings []string
 	if !cfg.SingleRepo {
-		extras = copyExtras(cfg.BaseDir, wsDir)
-		symlinkExtras := recreateSymlinks(cfg.BaseDir, wsDir, cfg.Repos)
+		var copyWarnings []string
+		extras, copyWarnings = copyExtras(cfg.BaseDir, wsDir)
+		warnings = append(warnings, copyWarnings...)
+
+		var symlinkExtras []string
+		var symlinkWarnings []string
+		symlinkExtras, symlinkWarnings = recreateSymlinks(cfg.BaseDir, wsDir, cfg.Repos)
 		extras = append(extras, symlinkExtras...)
+		warnings = append(warnings, symlinkWarnings...)
 	}
+
+	if len(created) == 0 {
+		if len(failed) > 0 {
+			fmt.Fprintf(os.Stderr, "Failed to create workspace '%s': no worktrees created\n", cfg.Name)
+			fmt.Fprintf(os.Stderr, "Failed repos: %s\n", strings.Join(failed, ", "))
+		}
+		for _, warning := range warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+		}
+		return fmt.Errorf("failed to create worktrees for: %s", strings.Join(failed, ", "))
+	}
+
+	header := fmt.Sprintf("Created workspace '%s' (branch %s)", cfg.Name, cfg.BranchName)
+	if len(failed) > 0 {
+		header += " with errors"
+	}
+	fmt.Fprintln(os.Stdout, header)
+	fmt.Fprintf(os.Stdout, "Repos: %s\n", strings.Join(created, ", "))
 
 	if len(extras) > 0 {
 		fmt.Fprintf(os.Stdout, "Files: %s\n", strings.Join(extras, ", "))
@@ -123,66 +157,90 @@ func Create(cfg Config) error {
 	}
 
 	if len(failed) > 0 {
+		fmt.Fprintf(os.Stderr, "Failed repos: %s\n", strings.Join(failed, ", "))
+	}
+	for _, warning := range warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+	}
+
+	if len(failed) > 0 {
 		return fmt.Errorf("failed to create worktrees for: %s", strings.Join(failed, ", "))
 	}
 	return nil
 }
 
-func copyExtras(baseDir, wsDir string) []string {
+func copyExtras(baseDir, wsDir string) ([]string, []string) {
 	var extras []string
+	var warnings []string
 
 	// Copy CLAUDE.md
-	if copied := copyFile(filepath.Join(baseDir, "CLAUDE.md"), filepath.Join(wsDir, "CLAUDE.md")); copied {
-		extras = append(extras, "CLAUDE.md")
+	claudeSrc := filepath.Join(baseDir, "CLAUDE.md")
+	claudeDst := filepath.Join(wsDir, "CLAUDE.md")
+	if _, err := os.Stat(claudeSrc); err == nil {
+		if err := copyFile(claudeSrc, claudeDst); err == nil {
+			extras = append(extras, "CLAUDE.md")
+		} else {
+			warnings = append(warnings, fmt.Sprintf("copy %s: %v", claudeSrc, err))
+		}
+	} else if !os.IsNotExist(err) {
+		warnings = append(warnings, fmt.Sprintf("stat %s: %v", claudeSrc, err))
 	}
 
 	// Copy .claude/settings.json
 	src := filepath.Join(baseDir, ".claude", "settings.json")
 	dst := filepath.Join(wsDir, ".claude", "settings.json")
 	if _, err := os.Stat(src); err == nil {
-		if err := os.MkdirAll(filepath.Join(wsDir, ".claude"), 0o755); err == nil {
-			if copyFile(src, dst) {
-				extras = append(extras, ".claude/settings.json")
-			}
+		if err := os.MkdirAll(filepath.Join(wsDir, ".claude"), 0o755); err != nil {
+			warnings = append(warnings, fmt.Sprintf("create %s: %v", filepath.Join(wsDir, ".claude"), err))
+		} else if err := copyFile(src, dst); err == nil {
+			extras = append(extras, ".claude/settings.json")
+		} else {
+			warnings = append(warnings, fmt.Sprintf("copy %s: %v", src, err))
 		}
+	} else if !os.IsNotExist(err) {
+		warnings = append(warnings, fmt.Sprintf("stat %s: %v", src, err))
 	}
 
-	return extras
+	return extras, warnings
 }
 
-func copyFile(src, dst string) bool {
+func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
-		return false
+		return err
 	}
 	defer in.Close()
 
 	out, err := os.Create(dst)
 	if err != nil {
-		return false
+		return err
 	}
 	defer out.Close()
 
 	if _, err := io.Copy(out, in); err != nil {
-		return false
+		return err
 	}
-	return true
+	if err := out.Sync(); err != nil {
+		return err
+	}
+	return nil
 }
 
-func recreateSymlinks(baseDir, wsDir string, repos []string) []string {
+func recreateSymlinks(baseDir, wsDir string, repos []string) ([]string, []string) {
 	symlinks, err := DiscoverSymlinks(baseDir, repos)
 	if err != nil {
-		return nil
+		return nil, []string{fmt.Sprintf("discover symlinks in %s: %v", baseDir, err)}
 	}
 
 	var extras []string
+	var warnings []string
 	for name, target := range symlinks {
 		linkPath := filepath.Join(wsDir, name)
 		if err := os.Symlink(target, linkPath); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: symlink %s -> %s: %v\n", name, target, err)
+			warnings = append(warnings, fmt.Sprintf("symlink %s -> %s: %v", name, target, err))
 			continue
 		}
 		extras = append(extras, fmt.Sprintf("%s -> %s", name, target))
 	}
-	return extras
+	return extras, warnings
 }
