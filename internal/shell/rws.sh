@@ -58,7 +58,7 @@ if [ -n "$BASH_VERSION" ]; then
         fi
 
         if [ "$COMP_CWORD" -eq 1 ]; then
-            COMPREPLY=($(compgen -W "add cd" -- "$cur"))
+            COMPREPLY=($(compgen -W "cd" -- "$cur"))
         fi
     }
     complete -F _rws_completions rws
@@ -76,7 +76,7 @@ if [ -n "$ZSH_VERSION" ]; then
                 fi
             fi
         elif [ "$CURRENT" -eq 2 ]; then
-            compadd add cd
+            compadd cd
         fi
     }
     compdef _rws rws
