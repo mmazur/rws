@@ -149,12 +149,16 @@ func Create(cfg Config) error {
 		fmt.Fprintln(os.Stdout, "Files: -")
 	}
 
-	fmt.Fprintln(os.Stdout, "Dir:")
+	var dirPath string
 	if cfg.SingleRepo && len(created) == 1 {
-		fmt.Println(filepath.Join(wsDir, created[0]))
+		dirPath = filepath.Join(wsDir, created[0])
 	} else {
-		fmt.Println(wsDir)
+		dirPath = wsDir
 	}
+	fmt.Fprintf(os.Stdout, "Dir: %s\n", dirPath)
+
+	// Write recent dir to state file
+	writeRecentDir(dirPath)
 
 	if len(failed) > 0 {
 		fmt.Fprintf(os.Stderr, "Failed repos: %s\n", strings.Join(failed, ", "))
@@ -224,6 +228,22 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return nil
+}
+
+func writeRecentDir(dir string) {
+	stateDir := os.Getenv("XDG_STATE_HOME")
+	if stateDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return
+		}
+		stateDir = filepath.Join(home, ".local", "state")
+	}
+	rwsState := filepath.Join(stateDir, "rws")
+	if err := os.MkdirAll(rwsState, 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(rwsState, "rws_recent_dir"), []byte(dir), 0o644)
 }
 
 func recreateSymlinks(baseDir, wsDir string, repos []string) ([]string, []string) {

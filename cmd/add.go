@@ -109,7 +109,17 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		SingleRepo:    singleRepo,
 	}
 
-	return workspace.Create(cfg)
+	if err := workspace.Create(cfg); err != nil {
+		return err
+	}
+
+	if os.Getenv("RWS_SHELL_FUNCTION") == "1" {
+		fmt.Println("\nRun 'rws cd' to cd to the new workspace")
+	} else {
+		fmt.Println("\nRun 'rws cd' to install shell support for quick workspace switching")
+	}
+
+	return nil
 }
 
 func expandHome(path string) string {
