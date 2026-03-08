@@ -173,6 +173,83 @@ func Create(cfg Config) error {
 	return nil
 }
 
+// AmendConfig holds parameters for amending an existing workspace.
+type AmendConfig struct {
+	Name          string
+	WorkspaceRoot string
+	BaseDir       string
+	NewRepos      []string
+	BranchName    string
+	SingleRepo    bool
+}
+
+// Amend adds new repos to an existing workspace.
+func Amend(cfg AmendConfig) error {
+	wsDir := filepath.Join(cfg.WorkspaceRoot, cfg.Name)
+
+	var failed []string
+	var created []string
+	var warnings []string
+
+	for _, repo := range cfg.NewRepos {
+		repoSrc := filepath.Join(cfg.BaseDir, repo)
+		worktreeDst := filepath.Join(wsDir, repo)
+		baseBranch, err := gitutil.DefaultBranch(repoSrc)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s: %v\n", repo, err)
+			failed = append(failed, repo)
+			continue
+		}
+
+		if err := gitutil.AddWorktree(repoSrc, worktreeDst, cfg.BranchName, baseBranch); err != nil {
+			fmt.Fprintf(os.Stderr, "error: worktree for %s: %v\n", repo, err)
+			failed = append(failed, repo)
+			continue
+		}
+		created = append(created, repo)
+	}
+
+	// In multi-repo mode, only add symlinks for newly created repos.
+	if !cfg.SingleRepo && len(created) > 0 {
+		_, symlinkWarnings := recreateSymlinks(cfg.BaseDir, wsDir, created)
+		warnings = append(warnings, symlinkWarnings...)
+	}
+
+	if len(created) == 0 && len(failed) > 0 {
+		for _, warning := range warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+		}
+		return fmt.Errorf("failed to add worktrees for: %s", strings.Join(failed, ", "))
+	}
+
+	header := fmt.Sprintf("Amended workspace '%s' (branch %s)", cfg.Name, cfg.BranchName)
+	if len(failed) > 0 {
+		header += " with errors"
+	}
+	fmt.Fprintln(os.Stdout, header)
+	fmt.Fprintf(os.Stdout, "Added repos: %s\n", strings.Join(created, ", "))
+
+	dirPath := wsDir
+	if cfg.SingleRepo && len(created) == 1 {
+		dirPath = filepath.Join(wsDir, created[0])
+	}
+	fmt.Fprintf(os.Stdout, "Dir: %s\n", dirPath)
+
+	writeRecentDir(dirPath)
+
+	if len(failed) > 0 {
+		fmt.Fprintf(os.Stderr, "Failed repos: %s\n", strings.Join(failed, ", "))
+	}
+	for _, warning := range warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+	}
+
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to add worktrees for: %s", strings.Join(failed, ", "))
+	}
+	return nil
+}
+
 func copyExtras(baseDir, wsDir string) ([]string, []string) {
 	var extras []string
 	var warnings []string

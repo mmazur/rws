@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,9 @@ import (
 )
 
 type Config struct {
-	WorkspaceRoot string `toml:"workspace_root"`
+	WorkspaceRoot string              `toml:"workspace_root"`
+	Groups        map[string][]string `toml:"groups"`
+	DefaultRepos  []string            `toml:"default_repos"`
 }
 
 // Load returns a Config by layering defaults, global config, and project config.
@@ -97,7 +100,62 @@ func overlayFile(cfg *Config, path string) error {
 		cfg.WorkspaceRoot = fileCfg.WorkspaceRoot
 	}
 
+	// Merge groups (later layers override same-named groups)
+	for name, repos := range fileCfg.Groups {
+		if cfg.Groups == nil {
+			cfg.Groups = make(map[string][]string)
+		}
+		cfg.Groups[name] = repos
+	}
+
+	// Override default_repos if set in this layer
+	if len(fileCfg.DefaultRepos) > 0 {
+		cfg.DefaultRepos = fileCfg.DefaultRepos
+	}
+
 	return nil
+}
+
+// ResolveRepoNames expands group:name references in a list of repo names
+// using the config's Groups map. Returns deduplicated repo names in order.
+func (c *Config) ResolveRepoNames(names []string) ([]string, error) {
+	seen := make(map[string]bool)
+	var result []string
+	for _, name := range names {
+		if strings.HasPrefix(name, "group:") {
+			groupName := strings.TrimPrefix(name, "group:")
+			repos, ok := c.Groups[groupName]
+			if !ok {
+				return nil, fmt.Errorf("unknown group %q", groupName)
+			}
+			for _, r := range repos {
+				if !seen[r] {
+					seen[r] = true
+					result = append(result, r)
+				}
+			}
+		} else {
+			if !seen[name] {
+				seen[name] = true
+				result = append(result, name)
+			}
+		}
+	}
+	return result, nil
+}
+
+// ResolveDefaultRepos expands group:name references in DefaultRepos.
+func (c *Config) ResolveDefaultRepos() ([]string, error) {
+	return c.ResolveRepoNames(c.DefaultRepos)
+}
+
+// ResolveGroups expands a list of group names into repo names.
+func (c *Config) ResolveGroups(groupNames []string) ([]string, error) {
+	var refs []string
+	for _, g := range groupNames {
+		refs = append(refs, "group:"+g)
+	}
+	return c.ResolveRepoNames(refs)
 }
 
 // ExpandHome expands a leading ~/ to the user's home directory.

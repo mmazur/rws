@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -33,6 +35,25 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 	switch args[0] {
 	case "workspace_root":
 		fmt.Println(cfg.WorkspaceRoot)
+	case "groups":
+		if len(cfg.Groups) == 0 {
+			fmt.Println("(none)")
+		} else {
+			names := make([]string, 0, len(cfg.Groups))
+			for k := range cfg.Groups {
+				names = append(names, k)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				fmt.Printf("%s: %s\n", name, strings.Join(cfg.Groups[name], ", "))
+			}
+		}
+	case "default_repos":
+		if len(cfg.DefaultRepos) == 0 {
+			fmt.Println("(none)")
+		} else {
+			fmt.Println(strings.Join(cfg.DefaultRepos, ", "))
+		}
 	default:
 		return fmt.Errorf("unknown config key: %s", args[0])
 	}
