@@ -5,15 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 
 	"github.com/mmazur/rws/internal/gitutil"
 	"github.com/mmazur/rws/internal/userutil"
 	"github.com/mmazur/rws/internal/workspace"
 	"github.com/spf13/cobra"
 )
-
-var workspaceRoot string
 
 var wsNameRegexp = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
@@ -25,12 +22,6 @@ var addCmd = &cobra.Command{
 }
 
 func init() {
-	defaultRoot := os.Getenv("RWS_WORKSPACE_ROOT")
-	if defaultRoot == "" {
-		home, _ := os.UserHomeDir()
-		defaultRoot = filepath.Join(home, "work")
-	}
-	addCmd.Flags().StringVarP(&workspaceRoot, "workspace-root", "r", defaultRoot, "root directory for workspaces (env: RWS_WORKSPACE_ROOT)")
 	rootCmd.AddCommand(addCmd)
 }
 
@@ -42,8 +33,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid workspace name %q: only alphanumeric, hyphens, underscores, and dots allowed", wsName)
 	}
 
-	// Expand ~ in workspace root
-	root := expandHome(workspaceRoot)
+	appCfg, err := resolveConfig()
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	root := appCfg.WorkspaceRoot
 
 	// Check workspace doesn't already exist
 	wsDir := filepath.Join(root, wsName)
@@ -120,15 +114,4 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-func expandHome(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return path
-		}
-		return filepath.Join(home, path[2:])
-	}
-	return path
 }

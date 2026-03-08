@@ -19,7 +19,16 @@ rws() {
             target="$1"
         else
             # Relative name — resolve under workspace root
-            target="${RWS_WORKSPACE_ROOT:-$HOME/work}/$1"
+            local root
+            root="$(command rws config get workspace_root 2>/dev/null)" || {
+                echo "rws cd: failed to resolve workspace_root" >&2
+                return 1
+            }
+            if [ -z "$root" ]; then
+                echo "rws cd: workspace_root is empty" >&2
+                return 1
+            fi
+            target="$root/$1"
         fi
         if [ -d "$target" ]; then
             cd "$target" || return 1
@@ -39,7 +48,7 @@ if [ -n "$BASH_VERSION" ]; then
         local prev="${COMP_WORDS[COMP_CWORD-1]}"
 
         if [ "$prev" = "cd" ] || { [ "$COMP_CWORD" -ge 2 ] && [ "${COMP_WORDS[1]}" = "cd" ]; }; then
-            local root="${RWS_WORKSPACE_ROOT:-$HOME/work}"
+            local root="$(command rws config get workspace_root)"
             if [ -d "$root" ]; then
                 local dirs
                 dirs=$(cd "$root" && compgen -d -- "$cur" 2>/dev/null)
@@ -58,7 +67,7 @@ fi
 # Zsh completion
 if [ -n "$ZSH_VERSION" ]; then
     _rws() {
-        local root="${RWS_WORKSPACE_ROOT:-$HOME/work}"
+        local root="$(command rws config get workspace_root)"
         if [ "${words[2]}" = "cd" ]; then
             if [ -d "$root" ]; then
                 local dirs=("$root"/*(/N:t))
