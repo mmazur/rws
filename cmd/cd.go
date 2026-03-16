@@ -29,8 +29,8 @@ func init() {
 }
 
 const (
-	markerStart = "# >>> rws shell integration >>>"
-	markerEnd   = "# <<< rws shell integration <<<"
+	markerStart = "# >>> rws shell wrapper >>>"
+	markerEnd   = "# <<< rws shell wrapper <<<"
 )
 
 func runCd(cmd *cobra.Command, args []string) error {
@@ -72,7 +72,7 @@ func runCd(cmd *cobra.Command, args []string) error {
 		actions = append(actions, action)
 	}
 
-	fmt.Println("Installed rws shell integration:")
+	fmt.Println("Installed rws shell wrapper:")
 	for _, a := range actions {
 		fmt.Println("  " + a)
 	}
@@ -99,7 +99,7 @@ func installBashIntegration() (string, error) {
 	// Prefer ~/.bashrc.d/ if it exists
 	bashrcD := filepath.Join(home, ".bashrc.d")
 	if info, err := os.Stat(bashrcD); err == nil && info.IsDir() {
-		target := filepath.Join(bashrcD, "rws")
+		target := filepath.Join(bashrcD, "rws-wrapper")
 		if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
 			return "", err
 		}

@@ -1,4 +1,4 @@
-# rws shell integration
+# rws shell wrapper
 # Compatible with bash and zsh
 
 rws() {
