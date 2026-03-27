@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mmazur/rws/internal/gitutil"
 )
@@ -136,6 +137,12 @@ func Create(cfg Config) error {
 		return fmt.Errorf("failed to create worktrees for: %s", strings.Join(failed, ", "))
 	}
 
+	// Best-effort metadata write
+	now := time.Now().UTC()
+	if err := WriteMetadata(wsDir, Metadata{CreatedAt: now, UpdatedAt: now}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: writing metadata: %v\n", err)
+	}
+
 	header := fmt.Sprintf("Created workspace '%s' (branch %s)", cfg.Name, cfg.BranchName)
 	if len(failed) > 0 {
 		header += " with errors"
@@ -220,6 +227,17 @@ func Amend(cfg AmendConfig) error {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 		}
 		return fmt.Errorf("failed to add worktrees for: %s", strings.Join(failed, ", "))
+	}
+
+	// Update metadata — if none exists, create fresh
+	now := time.Now().UTC()
+	meta, err := ReadMetadata(wsDir)
+	if err != nil {
+		meta = Metadata{CreatedAt: now}
+	}
+	meta.UpdatedAt = now
+	if writeErr := WriteMetadata(wsDir, meta); writeErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: writing metadata: %v\n", writeErr)
 	}
 
 	header := fmt.Sprintf("Amended workspace '%s' (branch %s)", cfg.Name, cfg.BranchName)

@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // IsGitRepo checks if the given path is a git repository.
@@ -55,6 +57,24 @@ func DefaultBranch(repoPath string) (string, error) {
 func AddWorktree(repoPath, worktreePath, newBranch, baseBranch string) error {
 	_, err := runGit(repoPath, "worktree", "add", "-b", newBranch, worktreePath, baseBranch)
 	return err
+}
+
+// LatestCommitTime returns the timestamp of the most recent commit in the repo.
+// Returns zero time if the repo has no commits or on error.
+func LatestCommitTime(repoPath string) (time.Time, error) {
+	out, err := runGit(repoPath, "log", "-1", "--format=%ct")
+	if err != nil {
+		return time.Time{}, err
+	}
+	s := strings.TrimSpace(out)
+	if s == "" {
+		return time.Time{}, nil
+	}
+	epoch, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parsing commit timestamp: %w", err)
+	}
+	return time.Unix(epoch, 0), nil
 }
 
 func runGit(dir string, args ...string) (string, error) {
