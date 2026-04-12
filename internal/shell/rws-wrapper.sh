@@ -64,8 +64,9 @@ if [ -n "$BASH_VERSION" ]; then
     complete -F _rws_completions rws
 fi
 
-# Zsh completion
+# Zsh completion (eval'd to avoid bash parse errors on zsh glob syntax)
 if [ -n "$ZSH_VERSION" ]; then
+    eval '
     _rws() {
         local root="$(command rws config get workspace_root)"
         if [ "${words[2]}" = "cd" ]; then
@@ -80,4 +81,5 @@ if [ -n "$ZSH_VERSION" ]; then
         fi
     }
     compdef _rws rws
+    '
 fi
